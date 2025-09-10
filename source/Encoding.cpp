@@ -5,6 +5,7 @@ Date : 2024-March-12
 
 #include <iostream>
 #include <fstream>
+#include <queue>
 #include <string>
 #include <vector>
 #include <memory>
@@ -14,47 +15,29 @@ Date : 2024-March-12
 #define LEAF 0
 #define INTERNAL 1
 
-typedef struct node
+struct node
 {
     char x;
     int freq;
-    char *code;
+    std::string code;
     int type;
-    struct node *next;
-    struct node *left;
-    struct node *right;
+    node *left;
+    node *right;
+    node(char c) : x(c), freq(1), code(""), type(LEAF), left(nullptr), right(nullptr) {}
+    node(node *l, node *r) : x('@'), freq(l->freq + r->freq), code(""), type(INTERNAL), left(l), right(r) {}
+};
 
-} node;
-
-// Head and root nodes  in the linked list.
-node *HEAD, *ROOT;
-
-void printll();
-void makeTree();
-void genCode(node *p, char *code);
-void insert(node *p, node *m);
-void addSymbol(char c);
-void writeHeader(std::ofstream &f);
+node *ROOT = nullptr;
+void makeTree(std::vector<node *> &nodes);
+void genCode(node *p, const std::string &code);
+void addSymbol(char c, std::vector<node *> &nodes);
+void writeHeader(std::ofstream &f, const std::vector<node *> &nodes);
 void writeBit(int b, std::ofstream &f);
-void writeCode(char ch, std::ofstream &f);
-char *getCode(char ch);
-
-node *newNode(char c)
-{
-    node *temp;
-    temp = new node;
-    temp->x = c;
-    temp->type = LEAF;
-    temp->freq = 1;
-    temp->next = NULL;
-    temp->left = NULL;
-    temp->right = NULL;
-    return temp;
-}
+void writeCode(char ch, std::ofstream &f, const std::vector<node *> &nodes);
+std::string getCode(char ch, const std::vector<node *> &nodes);
 
 int main(int argc, char **argv)
 {
-    HEAD = nullptr;
     ROOT = nullptr;
     std::string inputFile, outputFile;
     if (argc <= 2)
@@ -77,17 +60,18 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    std::cout << "Initiating the compression sequence.................\n";
-    std::cout << "Reading input file " << inputFile << "\n";
+    std::vector<node *> nodes;
     char ch;
     while (fin.get(ch))
-        addSymbol(ch);
+        addSymbol(ch, nodes);
     fin.close();
 
+    std::cout << "Reading input file " << inputFile << "\n";
     std::cout << "Constructing Huffman-Tree....................\n";
-    makeTree();
+    makeTree(nodes);
     std::cout << "Assigning codewords..........................\n";
-    genCode(ROOT, (char *)"\0");
+    if (!nodes.empty())
+        genCode(nodes[0], "");
 
     std::cout << "Compressing the file.........................\n";
     fin.open(inputFile, std::ios::binary);
@@ -102,14 +86,11 @@ int main(int argc, char **argv)
         std::cout << "\n[!]Output file cannot be opened.\n";
         return -2;
     }
-
+    writeHeader(fout, nodes);
     std::cout << "\nReading input file " << inputFile << ".......................";
     std::cout << "\nWriting file " << outputFile << "........................";
-    std::cout << "\nWriting File Header..............................";
-    writeHeader(fout);
-    std::cout << "\nWriting compressed content............................";
     while (fin.get(ch))
-        writeCode(ch, fout);
+        writeCode(ch, fout, nodes);
     fin.close();
     fout.close();
 
@@ -117,247 +98,155 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void writeHeader(std::ofstream &f)
-{
-    // mapping of codes to actual words
-    codeTable record;
-    node *p;
-    int temp = 0, i = 0;
-    p = HEAD;
-    // Determine the uniwue symbols and padding of bits
-    while (p != NULL)
-    {
-        temp += (strlen(p->code)) * (p->freq); // temp stores padding
-        if (strlen(p->code) > MAX)
-            printf("\n[!] Codewords are longer than usual.");
-        temp %= 8;
-        i++;
-        p = p->next;
-    }
+// ---- Function Definitions ----
 
+void writeHeader(std::ofstream &f, const std::vector<node *> &nodes)
+{
+    int temp = 0, i = 0;
+    for (const auto &p : nodes)
+    {
+        temp += static_cast<int>(p->code.length()) * (p->freq);
+        if (p->code.length() > MAX)
+            std::cout << "\n[!] Codewords are longer than usual.";
+        i++;
+    }
+    temp %= 8;
     if (i == 256)
-        N = 0; // if 256 diff bit combinations exist, then alias 256 as 0
+        N = 0;
     else
         N = i;
-
-    f.write(reinterpret_cast<char *>(&N), sizeof(unsigned char));
-    std::cout << "\nN=" << i;
-
-    p = HEAD;
-    // Start from the HEAD and wirte all character with its corresponding codes
-    while (p != NULL)
+    for (const auto &p : nodes)
     {
         record.x = p->x;
-        strcpy(record.code, p->code);
+        strncpy(record.code, p->code.c_str(), sizeof(record.code));
         f.write(reinterpret_cast<char *>(&record), sizeof(codeTable));
-        p = p->next;
     }
-
-    padding = 8 - (char)temp; // int to char & padding = 8-bitsExtra
+    char padding = 8 - static_cast<char>(temp);
     f.write(reinterpret_cast<char *>(&padding), sizeof(char));
     std::cout << "\nPadding=" << (int)padding;
-    // do actual padding
     for (i = 0; i < padding; i++)
         writeBit(0, f);
 }
 
-void writeCode(char ch, std::ofstream &f)
+void writeCode(char ch, std::ofstream &f, const std::vector<node *> &nodes)
 {
-    char *code;
-    // getting code of each character form the file
-    code = getCode(ch);
-    while (*code != '\0')
+    std::string code = getCode(ch, nodes);
+    for (char bit : code)
     {
-        // Write into file 1 if the code is one
-        if (*code == '1')
-            writeBit(1, f);
-        // Write 0 bit in file the corrensponding code is 0
-        else
-            writeBit(0, f);
-        code++;
+        writeBit(bit == '1' ? 1 : 0, f);
     }
-    return;
 }
 
-// Function to wite the bit value to the file
 void writeBit(int b, std::ofstream &f)
-{ // My Logic: Maintain static buffer, if it is full, write into file
-    static char byte;
-    static int cnt;
+{
+    static char byte = 0;
+    static int cnt = 0;
     char temp;
     if (b == 1)
     {
         temp = 1;
-        temp = temp << (7 - cnt); // right shift bits
+        temp = temp << (7 - cnt);
         byte = byte | temp;
     }
     cnt++;
-
-    if (cnt == 8) // buffer full
+    if (cnt == 8)
     {
-        //		printf("[%s]",bitsInChar(byte));
         f.write(&byte, sizeof(char));
         cnt = 0;
-        byte = 0; // reset buffer
-        return;   // buffer written to file
+        byte = 0;
     }
-    return;
 }
 
-// getting correaponding code from the linked list, whose character is given
-char *getCode(char ch)
+std::string getCode(char ch, const std::vector<node *> &nodes)
 {
-    node *p = HEAD;
-    while (p != NULL)
+    for (const auto &p : nodes)
     {
-        // LOGIC: check if the passed character matches with the linked list, if yes return its corresponding code
         if (p->x == ch)
             return p->code;
-        p = p->next;
     }
-    return NULL; // not found
+    return "";
 }
 
-// Inserting a node according to its freq in the linked list
-void insert(node *p, node *m)
-{ // insert p in list as per its freq., start from m to right,
-    // we cant place node smaller than m since we dont have ptr to node left to m
-    if (m->next == NULL)
-    {
-        m->next = p;
-        return;
-    }
-    while (m->next->freq < p->freq)
-    {
-        m = m->next;
-        if (m->next == NULL)
-        {
-            m->next = p;
-            return;
-        }
-    }
-    p->next = m->next;
-    m->next = p;
-}
-
-// Adding the symbols to the linked list
-void addSymbol(char c)
-{ // Insert symbols into linked list if its new, otherwise freq++
-    node *p, *q, *m;
-    int t;
-
-    if (HEAD == NULL)
-    {
-        HEAD = newNode(c);
-        return;
-    }
-    p = HEAD;
-    q = NULL;
-    if (p->x == c) // item found in HEAD
-    {
-        p->freq += 1;
-        if (p->next == NULL)
-            return;
-        if (p->freq > p->next->freq)
-        {
-            HEAD = p->next;
-            p->next = NULL;
-            insert(p, HEAD);
-        }
-        return;
-    }
-
-    while (p->next != NULL && p->x != c)
-    {
-        q = p;
-        p = p->next;
-    }
-
-    if (p->x == c)
-    {
-        p->freq += 1;
-        if (p->next == NULL)
-            return;
-        if (p->freq > p->next->freq)
-        {
-            m = p->next;
-            q->next = p->next;
-            p->next = NULL;
-            insert(p, HEAD);
-        }
-    }
-    else // p->next==NULL , all list traversed c is not found, insert it at beginning
-    {
-        q = newNode(c);
-        q->next = HEAD; // first because freq is minimum
-        HEAD = q;
-    }
-}
-
-// Generating huffman tree
-void makeTree()
+void addSymbol(char c, std::vector<node *> &nodes)
 {
-    node *p, *q;
-    p = HEAD;
-    while (p != NULL)
+    for (auto &n : nodes)
     {
-        q = newNode('@');
-        q->type = INTERNAL; // internal node
-        q->left = p;        // join left subtree/node
-        q->freq = p->freq;
-        if (p->next != NULL)
+        if (n->x == c)
         {
-            p = p->next;
-            q->right = p; // join right subtree /node
-            q->freq += p->freq;
+            n->freq++;
+            return;
         }
-        p = p->next;   // consider next node frm list
-        if (p == NULL) // list ends
-            break;
-        // insert new subtree rooted at q into list starting from p
-        // if q smaller than p
-        if (q->freq <= p->freq)
-        { // place it before p
-            q->next = p;
-            p = q;
-        }
-        else
-            insert(q, p); // find appropriate position
-    } // while
-    ROOT = q; // q created at last iteration is ROOT of h-tree
+    }
+    nodes.push_back(new node(c));
 }
 
-// Genreating Huffman codes of the characters
-void genCode(node *p, char *code)
+void makeTree(std::vector<node *> &nodes)
 {
-    char *lcode, *rcode;
-    static node *s;
-    static int flag;
-    if (p != NULL)
-    {
-        // sort linked list as it was
-        if (p->type == LEAF) // leaf node
-        {
-            if (flag == 0) // first leaf node
-            {
-                flag = 1;
-                HEAD = p;
-            }
-            else // other leaf nodes
-            {
-                s->next = p;
-            } // sorting LL
-            p->next = NULL;
-            s = p;
-        }
+    auto cmp = [](node *a, node *b)
+    { return a->freq > b->freq; };
+    std::priority_queue<node *, std::vector<node *>, decltype(cmp)> minHeap(cmp, nodes);
 
-        // assign code
-        p->code = code; // assign code to current node
-        //	printf("[%c|%d|%s|%d]",p->x,p->freq,p->code,p->type);
-        std::string lcode = std::string(code) + "0";
-        std::string rcode = std::string(code) + "1";
-        // recursive DFS
-        genCode(p->left, (char *)lcode.c_str());
-        genCode(p->right, (char *)rcode.c_str());
+    while (minHeap.size() > 1)
+    {
+        node *left = minHeap.top();
+        minHeap.pop();
+        node *right = minHeap.top();
+        minHeap.pop();
+        node *parent = new node(left, right);
+        minHeap.push(parent);
     }
+    if (!minHeap.empty())
+    {
+        nodes.clear();
+        nodes.push_back(minHeap.top());
+        ROOT = minHeap.top();
+    }
+}
+
+void genCode(node *p, const std::string &code)
+{
+    if (!p)
+        return;
+    if (p->type == LEAF)
+    {
+        p->code = code;
+        return;
+    }
+    genCode(p->left, code + "0");
+    genCode(p->right, code + "1");
+}
+
+// (Removed unreachable/duplicate code after last function definition)
+auto cmp = [](node *a, node *b)
+{ return a->freq > b->freq; };
+std::priority_queue<node *, std::vector<node *>, decltype(cmp)> minHeap(cmp, nodes);
+
+while (minHeap.size() > 1)
+{
+    node *left = minHeap.top();
+    minHeap.pop();
+    node *right = minHeap.top();
+    minHeap.pop();
+    node *parent = new node(left, right);
+    minHeap.push(parent);
+}
+if (!minHeap.empty())
+{
+    nodes.clear();
+    nodes.push_back(minHeap.top());
+    ROOT = minHeap.top();
+}
+}
+
+void genCode(node *p, const std::string &code)
+{
+    if (!p)
+        return;
+    if (p->type == LEAF)
+    {
+        p->code = code;
+        return;
+    }
+    genCode(p->left, code + "0");
+    genCode(p->right, code + "1");
 }
