@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Prerequisites
 *.d
 
@@ -39,3 +40,6 @@
 
 # debug information files
 *.dwo
+=======
+.vscode
+>>>>>>> 4996aaf (Update: full codebase for Huffman text compressor tool)
