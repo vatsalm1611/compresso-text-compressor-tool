@@ -3,8 +3,9 @@
 
 ## Overview
 
-This project implements file compression and decompression using Huffman's algorithm in modern C++. 
-The program reads the input file, analyzes character frequencies, builds a Huffman tree, and replaces 
+
+This project implements file compression and decompression using Huffman's algorithm in modern C++ (C++17+). 
+The program reads the input file, analyzes character frequencies, builds a Huffman tree using a min-heap (priority queue), and replaces 
 each character with a unique binary codeword. The process is lossless, meaning the original file can 
 be perfectly reconstructed.
 
@@ -14,7 +15,8 @@ be perfectly reconstructed.
 
 - Compresses text files using Huffman coding for efficient storage.
 - Decompresses `.spd` files back to their original text form.
-- Written in modern C++ using streams, containers, and idiomatic code.
+- Written in modern C++ (C++17+) using streams, containers, and a min-heap for Huffman tree construction.
+- Uses a min-heap (priority queue) for efficient Huffman tree construction (no linked list logic).
 - Cross-platform: tested on both Windows and Linux.
 
 ---
@@ -73,8 +75,8 @@ Text: `aabcbaab`
 ## Algorithm Overview
 
 1. **First Pass:** Read the input file and build a frequency table for all characters.
-2. Create a sorted linked list of characters by frequency.
-3. Construct the Huffman tree from the frequency list.
+2. Use a min-heap (priority queue) to efficiently combine the lowest-frequency nodes.
+3. Construct the Huffman tree using the min-heap.
 4. Traverse the tree to assign codewords to each character.
 5. Write the mapping table (character → codeword) and padding info to the output file.
 6. **Second Pass:** Read the input file again and write the codeword for each character to the output file.
@@ -86,16 +88,6 @@ Text: `aabcbaab`
 
 Please feel free to submit issues and pull requests. Bug reports and testing on different platforms are appreciated. 
 The code has been tested on both Linux and Windows.
-
----
-
-## Development
-
-To do:
-- Support for binary files (e.g., JPEG, MP3)
-- Group repeating bit patterns for better compression
-- UTF-8 / Unicode support
-- Explore advanced compression using neural networks (Python)
 
 ---
 
