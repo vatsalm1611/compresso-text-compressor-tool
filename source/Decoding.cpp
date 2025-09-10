@@ -1,13 +1,14 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <unordered_map>
 #include <string>
 #include <algorithm>
 #include "compression.h"
 
 using namespace std;
 
-std::vector<codeTable> codelist;
+std::unordered_map<std::string, char> codeToChar;
 int n;
 std::string decodeBuffer(char buffer);
 std::string int2string(int n);
@@ -54,10 +55,15 @@ int main(int argc, char **argv)
         n = N;
     std::cout << "\nDetected: " << n << " different characters.";
 
-    codelist.resize(n);
+    std::vector<codeTable> codelist(n);
     if (!fin.read(reinterpret_cast<char *>(codelist.data()), sizeof(codeTable) * n))
         return (fileError(fin));
     std::cout << "\nReading character to Codeword Mapping Table";
+    // Populate hashmap for fast codeword lookup
+    for (const auto &entry : codelist)
+    {
+        codeToChar[std::string(entry.code)] = entry.x;
+    }
 
     if (!fin.read(reinterpret_cast<char *>(&buffer), sizeof(char)))
         return (fileError(fin));
@@ -86,54 +92,44 @@ int main(int argc, char **argv)
 
 std::string decodeBuffer(char b)
 {
-    int i = 0, j = 0, t;
-    static int k;
-    static int buffer; // buffer larger enough to hold two b's
+    static int k = 0;
+    static int buffer = 0;
     std::string decoded;
-    /*
-    Logic:
-    buffer = [1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0]
-              k
-    b   =        [ 1 0 1 1 0 0 1 1 ]
-    //put b in integer t right shift k+1 times then '&' with buffer; k=k+8;
-    buffer = [1 0 0 1 1 0 1 1 0 0 1 1 0 0 0 0]
-                    k
-    */
-
-    t = (int)b;
-    t = t & 0x00FF;      // mask high byte
-    t = t << 8 - k;      // shift bits keeping zeroes for old buffer
-    buffer = buffer | t; // joined b to buffer
-    k = k + 8;           // first useless bit index +8 , new byte added
-    if (padding != 0)    // on first call
+    int t = (int)b;
+    t = t & 0x00FF;
+    t = t << (8 - k);
+    buffer = buffer | t;
+    k = k + 8;
+    if (padding != 0)
     {
         buffer = buffer << padding;
-        k = 8 - padding; // k points to first useless bit index
+        k = 8 - padding;
         padding = 0;
     }
 
-    // loop to find matching codewords
-
-    while (i < n)
+    // Incrementally build codeword from buffer bits and check hashmap
+    while (k > 0)
     {
-        if (!match(codelist[i].code, int2string(buffer), k))
+        std::string candidate;
+        for (int i = 15; i >= 16 - k; --i)
         {
-            decoded += codelist[i].x;
-            t = strlen(codelist[i].code); // matched bits
-            buffer = buffer << t;         // throw out matched bits
-            k = k - t;                    // k will be less
-            i = 0;                        // match from initial record
-
-            if (k == 0)
+            int andd = 1 << i;
+            int bit = buffer & andd;
+            candidate += (bit == 0) ? '0' : '1';
+            if (codeToChar.count(candidate))
+            {
+                decoded += codeToChar[candidate];
+                int tlen = candidate.length();
+                buffer = buffer << tlen;
+                k -= tlen;
                 break;
-            continue;
+            }
         }
-        i++;
+        // If no match found, break to read more bits
+        break;
     }
-
     return decoded;
-
-} // fun
+}
 
 int match(const std::string &a, const std::string &b, int limit)
 {
